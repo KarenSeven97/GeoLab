@@ -1,2 +1,54 @@
 # GeoLab
-A 3D geographic sun and building-shadow simulator with real map data.
+
+真实城市三维建筑观察器。阶段 1 MVP：地图、搜索、建筑、视角与数据来源；太阳位置、阴影模拟和双时间轴属于阶段 2，当前未实现。
+
+## 本地运行
+
+使用 Node.js 24 或更新版本：
+
+```sh
+npm ci
+npm run dev
+```
+
+开发地址见终端输出。`npm run build` 做 TypeScript 检查并生成 `dist/`，`npm run preview` 查看生产构建，`npm test` 验证高度、坐标、建筑分段及数据请求行为。
+
+## 使用
+
+- 默认展示纽约 Bryant Park 周边的真实 OSM 建筑摘录。
+- 搜索框输入城市、街道地址，点击搜索后选择结果。坐标格式为 **纬度, 经度**，例如 `51.50745, -0.12777`。
+- 拖动平移，滚轮缩放，右键拖动旋转/倾斜；底部可切换俯视、透视，调整倾角。右侧按钮支持正北、缩放、重置和全屏。
+- 点击三维建筑查看高度、推断方法、底部离地高度和 OSM 原始对象链接。
+- 开启“区分高度来源”查看数据标注、按层数估算和默认估算。建筑统计按体块（含建筑分段）计数，不是独立楼宇数量。
+- 打开“数据与精度说明”，可在线更新当前区域。
+
+## 配置与数据
+
+无需 key 的默认服务：OpenFreeMap / OpenMapTiles 底图、Photon 搜索、VK Maps Overpass 查询。可以复制 `.env.example` 为 `.env.local` 更换兼容端点；这些 `VITE_` 值会公开进入浏览器，**不得填入私密凭据**。
+
+建筑请求限定为中心附近约 900 × 900 米；地图移动结束后去抖查询，相邻视野复用缓存，最多保留 8 个区域，单客户端请求间隔至少 5 秒。只在街区级别（zoom >= 15）请求建筑；同一地点的旋转、倾斜不会重新请求或重建场景。
+
+地图与建筑源不同步更新时可能存在轻微差异。公共服务可能超时、限流，全球数据完整性不保证；适合低流量 MVP，扩大使用前应选择有保障的数据服务或自托管。没有自动轮换服务以绕过限流。
+
+## 精度边界
+
+有效 `height` 标记为**数据源标注**，不等于实测认证；`building:levels` 按每层 3 米估算；缺失时默认 9 米。支持米/英尺、`min_height`、`building:min_level`、Polygon / MultiPolygon、孔洞和 `building:part`。有分段的建筑外壳不重复拉伸。不完整关系被跳过，数量在数据说明中披露。
+
+地面为水平面、屋顶为简化几何，当前照明是固定展示光，不代表真实太阳，也没有太阳阴影。底部观察工具条不是日期/时间轴。
+
+## 代码结构
+
+| 目录/文件 | 职责 |
+| --- | --- |
+| `src/data.ts` | 搜索、缓存、限速、请求取消与数据来源 |
+| `src/buildings.ts` | OSM 标准化、分段、高度与坐标解析 |
+| `src/scene.ts` | Three.js 几何合批、地图坐标变换、点击拾取与资源释放 |
+| `src/main.ts` | 地图生命周期与界面交互 |
+| `src/style.css` | 响应式悬浮面板与视觉样式 |
+| `public/data/` | 带来源与许可的真实默认区域摘录 |
+
+规划见 [implementation-plan.md](docs/implementation-plan.md)，实际验证记录见 [phase-1-validation.md](docs/phase-1-validation.md)。
+
+## 来源与许可
+
+地图署名在界面永久显示。建筑数据 © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)，按 ODbL 提供；详见 [数据说明](public/data/README.md)。底图来自 [OpenFreeMap](https://openfreemap.org/) / [OpenMapTiles](https://openmaptiles.org/)，搜索服务条款见 [Photon](https://photon.komoot.io/)，建筑查询服务见 [VK Maps Overpass](https://maps.mail.ru/osm/tools/overpass/)。代码尚未选择开源许可证；公开仓库不等于额外许可声明。
