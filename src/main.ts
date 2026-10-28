@@ -3,6 +3,8 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
 import { BuildingLayer } from './scene';
+import { Simulation } from './simulation';
+import { createTimeline } from './timeline';
 import { DataService, endpoints, initialPlace } from './data';
 import type { AreaData, Place, Building } from './types';
 maplibregl.setWorkerUrl(workerUrl);
@@ -12,7 +14,7 @@ const svg=(name:keyof typeof icons)=>`<svg viewBox="0 0 24 24" fill="none" strok
 document.querySelector('#app')!.innerHTML=`
   <main id="map" aria-label="真实城市三维地图"></main>
   <aside class="panel" aria-label="地点与建筑控制">
-    <header class="brand"><span class="brandmark"><span></span></span><div><h1>GeoLab<span class="brand-dot">.</span></h1><p>城市观察室</p></div><span class="phase">MVP 01</span><button id="collapse" class="icon-button collapse" aria-label="收起面板" aria-expanded="true">−</button></header>
+    <header class="brand"><span class="brandmark"><span></span></span><div><h1>GeoLab<span class="brand-dot">.</span></h1><p>城市光影实验室</p></div><span class="phase">MVP 02</span><button id="collapse" class="icon-button collapse" aria-label="收起面板" aria-expanded="true">−</button></header>
     <div id="panel-body">
       <form id="search-form" class="searchbox" role="search">${svg('search')}<input id="search" aria-label="搜索地点或坐标" placeholder="搜索城市、地址或纬度, 经度" autocomplete="off" maxlength="160"><button type="submit" aria-label="搜索">${svg('arrow')}</button></form>
       <p id="search-status" class="search-status" role="status" hidden></p><div id="results" class="results" aria-label="搜索结果" hidden></div>
@@ -31,13 +33,17 @@ document.querySelector('#app')!.innerHTML=`
   <div class="map-tools" aria-label="地图工具"><button id="north" class="north" title="朝向正北" aria-label="朝向正北"><span>N</span><b>↑</b></button><div class="tool-group"><button id="zoom-in" aria-label="放大">＋</button><button id="zoom-out" aria-label="缩小">−</button></div><div class="tool-group"><button id="reset" aria-label="重置当前地点视角" title="重置视角">${svg('home')}</button><button id="fullscreen" aria-label="全屏浏览" title="全屏">${svg('expand')}</button></div></div>
   <section id="building-card" class="building-card" aria-label="建筑详情" hidden><button id="close-building" class="icon-button" aria-label="关闭建筑详情">${svg('close')}</button><div class="eyebrow">BUILDING / 建筑档案</div><h3 id="building-name"></h3><div class="building-height"><strong id="building-height"></strong><span>米 · 顶部离地高度</span></div><p id="building-method"></p><p id="building-base"></p><a id="building-link" target="_blank" rel="noopener noreferrer">在 OpenStreetMap 查看 ↗</a></section>
   <footer class="view-dock"><div class="dock-title"><span class="mini-orbit">◎</span><div><strong>城市，换个角度。</strong><span>拖动平移 · 滚轮缩放 · 右键拖动旋转</span></div></div><div class="view-buttons" role="group" aria-label="观察角度"><button id="view-2d">俯视</button><button id="view-3d" class="active">透视 3D</button></div><span class="dock-separator"></span><label class="tilt-control">倾角 <input id="tilt" type="range" min="0" max="70" value="58" aria-label="地图倾角"><output id="tilt-value">58°</output></label></footer>
-  <div class="bottom-note">阶段 1 · 地图与建筑 <span>太阳与时间轴将在下一阶段接入</span></div>
-  <dialog id="sources"><div class="dialog-title"><span class="eyebrow">ABOUT THE DATA</span><button id="close-sources" class="icon-button" aria-label="关闭数据说明">${svg('close')}</button></div><h2>真实轮廓，透明精度。</h2><p>底图来自 <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> / OpenMapTiles；建筑轮廓和属性来自 <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors · ODbL</a>。搜索由 <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a> 提供。</p><dl><dt>数据标注</dt><dd>使用有效 height 属性；来源标注不等于实测认证。</dd><dt>按层数估算</dt><dd>building:levels × 3 米。层高统一假设。</dd><dt>默认估算</dt><dd>缺少高度和层数时采用 9 米，绝不伪装成真实高度。</dd></dl><p>建筑包含可用的分段体块、孔洞与离地高度。第一版为水平地面及简化屋顶，静态展示光照不代表任何时刻的太阳。建筑数量按体块统计。</p><p id="source-current"></p><p>每次按中心附近约 900 × 900 米加载；远处仅显示底图。公共服务可能限流或中断，不承诺全球建筑完整性。</p></dialog>
+  <div class="bottom-note">阶段 2 · 太阳与阴影 <span>仅模拟已加载区域</span></div>
+  <dialog id="sources"><div class="dialog-title"><span class="eyebrow">ABOUT THE DATA</span><button id="close-sources" class="icon-button" aria-label="关闭数据说明">${svg('close')}</button></div><h2>真实轮廓，透明精度。</h2><p>底图来自 <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> / OpenMapTiles；建筑轮廓和属性来自 <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors · ODbL</a>。搜索由 <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a> 提供。</p><dl><dt>数据标注</dt><dd>使用有效 height 属性；来源标注不等于实测认证。</dd><dt>按层数估算</dt><dd>building:levels × 3 米。层高统一假设。</dd><dt>默认估算</dt><dd>缺少高度和层数时采用 9 米，绝不伪装成真实高度。</dd></dl><p>建筑包含可用的分段体块、孔洞与离地高度。采用水平地面及简化屋顶。太阳使用 SunCalc 2 视位置（含标准折射），方向光和阴影由真实建筑几何计算。建筑数量按体块统计；未加载建筑不参与遮挡。</p><p id="source-current"></p><p>每次按中心附近约 900 × 900 米加载；远处仅显示底图，低太阳高度时长阴影会超出模拟范围。阴影贴图为 2048 像素，极低角度可能产生精度误差。公共服务可能限流或中断。时间使用地点 IANA 时区；时区边界可手动校正。日出日落为海平面无遮挡参考，不是建筑之间实际可见太阳的时刻。</p></dialog>
   <div id="toast" role="status" hidden></div>
 `;
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id)! as T;
 const text=(id:string,value:string)=>{el(id).textContent=value;};
 const service=new DataService();const layer=new BuildingLayer();
+const simulation=new Simulation(initialPlace.lat,initialPlace.lng);
+simulation.setTime('14:00');
+const timeline=createTimeline(simulation,(sun,day,changed)=>{layer.updateSun(sun);if(changed)layer.setSunPath(day.path);});
+el<HTMLInputElement>('sun-path').addEventListener('change',e=>layer.showSunPath((e.target as HTMLInputElement).checked));
 let map:maplibregl.Map;let selected:Place={...initialPlace};let area:AreaData|null=null;
 let loadAbort:AbortController|null=null;let searchAbort:AbortController|null=null;let generation=0;let moveTimer:ReturnType<typeof setTimeout>;let pending=false;let ready=false;
 let lastCenter:[number,number]=[initialPlace.lng,initialPlace.lat];
@@ -60,6 +66,7 @@ async function loadArea(force=false) {
   if(!ready)return;
   const id=++generation;loadAbort?.abort();loadAbort=new AbortController();pending=false;
   const center=map.getCenter();text('coordinates',coords(center.lng,center.lat));
+  if(simulation.setLocation(center.lat,center.lng)){timeline.pause();timeline.refresh();}
   if(map.getZoom()<15) {status('放大至街区级别以加载建筑','empty');return;}
   const cached=!force&&service.cached(center.lng,center.lat);
   if(cached&&cached===area){status(!area!.buildings.length?'此区域暂无建筑数据':area!.snapshot?'已载入真实数据摘录':'建筑已更新',area!.buildings.length?'ready':'empty');return;}
@@ -74,6 +81,7 @@ async function loadArea(force=false) {
 }
 function selectPlace(place:Place) {
   selected=place;generation++;loadAbort?.abort();pending=false;
+  timeline.pause();simulation.setLocation(place.lat,place.lng);timeline.refresh();
   clearTimeout(moveTimer);el('results').hidden=true;el('search-status').hidden=true;el<HTMLInputElement>('search').value='';
   text('place-name',place.name);text('place-detail',place.detail);text('coordinates',coords(place.lng,place.lat));
   map.flyTo({center:[place.lng,place.lat],zoom:16.15,pitch:58,bearing:-25,duration:1200,essential:true});
@@ -143,5 +151,5 @@ el('collapse').addEventListener('click',()=>{const hidden=!el('panel-body').hidd
 const dialog=el<HTMLDialogElement>('sources');el('source-button').addEventListener('click',()=>dialog.showModal());el('close-sources').addEventListener('click',()=>dialog.close());
 const refresh=document.createElement('button');refresh.textContent='在线更新当前区域';refresh.className='refresh-data';refresh.addEventListener('click',()=>{dialog.close();void loadArea(true);});dialog.append(refresh);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){el('results').hidden=true;el('building-card').hidden=true;}});
-window.addEventListener('pagehide',()=>{loadAbort?.abort();searchAbort?.abort();clearTimeout(moveTimer);map?.remove();});
+window.addEventListener('pagehide',()=>{loadAbort?.abort();searchAbort?.abort();clearTimeout(moveTimer);timeline.destroy();map?.remove();});
 void init();
