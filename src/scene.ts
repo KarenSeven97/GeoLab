@@ -56,7 +56,7 @@ export class BuildingLayer implements CustomLayerInterface {
     this.ranges=ranges;this.triangles=faceCount;this.buildCount++;
     this.normalColors=new Float32Array(regular);this.evidenceColors=new Float32Array(evidence);
     if(merged) {
-      merged.setAttribute('color',new THREE.BufferAttribute(this.evidence?this.evidenceColors:this.normalColors,3));
+      merged.setAttribute('color',new THREE.BufferAttribute((this.evidence?this.evidenceColors:this.normalColors).slice(),3));
       this.mesh=new THREE.Mesh(merged,this.material);this.mesh.frustumCulled=false;this.mesh.visible=this.visible;
       this.mesh.castShadow=true;this.mesh.receiveShadow=true;this.scene.add(this.mesh);
     }
@@ -65,11 +65,13 @@ export class BuildingLayer implements CustomLayerInterface {
   showEvidence(value:boolean) {
     this.evidence=value;
     if(this.mesh&&this.normalColors&&this.evidenceColors) {
-      this.mesh.geometry.setAttribute('color',new THREE.BufferAttribute(value?this.evidenceColors:this.normalColors,3));
+      const colors=this.mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+      colors.set(value?this.evidenceColors:this.normalColors);
+      colors.needsUpdate=true;
       this.map.triggerRepaint();
     }
   }
-  show(value:boolean) {this.visible=value;if(this.mesh)this.mesh.visible=value;this.map.triggerRepaint();}
+  show(value:boolean) {this.visible=value;if(this.mesh)this.mesh.visible=value;this.map?.triggerRepaint();}
   pick(x:number,y:number):Building|null {
     if(!this.mesh||!this.visible)return null;
     const canvas=this.map.getCanvas();const nx=x/canvas.clientWidth*2-1, ny=1-y/canvas.clientHeight*2;
