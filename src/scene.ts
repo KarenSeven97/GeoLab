@@ -22,7 +22,7 @@ export class BuildingLayer implements CustomLayerInterface {
   private sunRay=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xe8ad43,transparent:true,opacity:.6,depthTest:false}));
   private pathVectors:SunVector[]=[];private pathVisible=true;private radius=1000;private currentSun:SolarPosition|null=null;
   buildCount=0;triangles=0;renderCount=0;renderCpuMs=0;
-  diagnostics() {return {buildCount:this.buildCount,triangles:this.triangles,renderCount:this.renderCount,geometries:this.renderer?.info.memory.geometries ?? 0,drawCalls:this.renderer?.info.render.calls ?? 0,renderCpuMs:Math.round(this.renderCpuMs*100)/100,shadowActive:this.sun.castShadow,shadowSize:2048,shadowRadius:this.radius};}
+  diagnostics() {return {buildCount:this.buildCount,triangles:this.triangles,renderCount:this.renderCount,geometries:this.renderer?.info.memory.geometries ?? 0,drawCalls:this.renderer?.info.render.calls ?? 0,renderCpuMs:Math.round(this.renderCpuMs*100)/100,shadowActive:this.sun.castShadow,shadowSize:2048,shadowRadius:this.radius,drawingBuffer:this.renderer?[this.renderer.getContext().drawingBufferWidth,this.renderer.getContext().drawingBufferHeight]:null,viewport:this.renderer?.getViewport(new THREE.Vector4()).toArray()};}
   onAdd(map:Map,gl:WebGL2RenderingContext) {
     this.map=map;
     this.renderer=new THREE.WebGLRenderer({canvas:map.getCanvas(),context:gl,antialias:true});
@@ -134,10 +134,16 @@ export class BuildingLayer implements CustomLayerInterface {
     if(hit?.faceIndex==null)return null;
     return this.ranges.find(r=>hit.faceIndex!>=r.start && hit.faceIndex!<r.end)?.building || null;
   }
-  render(_gl:WebGL2RenderingContext,args:CustomRenderMethodInput) {
+  render(gl:WebGL2RenderingContext,args:CustomRenderMethodInput) {
     this.camera.projectionMatrix.fromArray(args.defaultProjectionData.mainMatrix).multiply(this.model);
     this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
-    const start=performance.now();this.renderer.resetState();this.renderer.render(this.scene,this.camera);this.renderer.resetState();this.renderCount++;this.renderCpuMs=performance.now()-start;
+    const start=performance.now();this.renderer.resetState();
+    // MapLibre owns canvas sizing. Shadow-map passes restore Three's cached
+    // viewport, so refresh it after fullscreen/resize/DPR changes before rendering.
+    // setSize() would also resize MapLibre's shared canvas and must not be used.
+    const pixelRatio=this.renderer.getPixelRatio();
+    this.renderer.setViewport(0,0,gl.drawingBufferWidth/pixelRatio,gl.drawingBufferHeight/pixelRatio);
+    this.renderer.render(this.scene,this.camera);this.renderer.resetState();this.renderCount++;this.renderCpuMs=performance.now()-start;
   }
   onRemove() {this.mesh?.geometry.dispose();this.material.dispose();for(const object of [this.ground,this.path,this.sunMarker,this.sunRay]){object.geometry.dispose();object.material.dispose();}this.sun.shadow.dispose();this.renderer.dispose();this.scene.clear();}
 }
