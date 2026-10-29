@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Building } from './types';
 import type { SolarPosition, SunVector } from './solar';
+import { lightingForAltitude } from './lighting.ts';
 
 interface FaceRange { end:number; start:number; building:Building }
 export class BuildingLayer implements CustomLayerInterface {
@@ -16,9 +17,11 @@ export class BuildingLayer implements CustomLayerInterface {
   private evidence=false;private visible=true;
   private sun=new THREE.DirectionalLight(0xfff2db,3);
   private ambient=new THREE.AmbientLight(0xffffff,.65);
+  private warmSun=new THREE.Color('#ffb76d');private neutralSun=new THREE.Color('#fff4df');
+  private nightAmbient=new THREE.Color('#8fa9d6');private dawnAmbient=new THREE.Color('#ffe1be');private dayAmbient=new THREE.Color('#ffffff');
   private ground=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.ShadowMaterial({color:0x15252c,opacity:.52,depthWrite:false,side:THREE.DoubleSide}));
   private path=new THREE.LineSegments(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xdca653,transparent:true,opacity:.8,depthTest:false}));
-  private sunMarker=new THREE.Mesh(new THREE.SphereGeometry(13,16,12),new THREE.MeshBasicMaterial({color:0xffc34f,depthTest:false}));
+  private sunMarker=new THREE.Mesh(new THREE.SphereGeometry(13,16,12),new THREE.MeshBasicMaterial({color:0xffc34f,depthTest:false,depthWrite:false,transparent:true}));
   private sunRay=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xe8ad43,transparent:true,opacity:.6,depthTest:false}));
   private pathVectors:SunVector[]=[];private pathVisible=true;private radius=1000;private currentSun:SolarPosition|null=null;
   buildCount=0;triangles=0;renderCount=0;renderCpuMs=0;
@@ -96,16 +99,22 @@ export class BuildingLayer implements CustomLayerInterface {
   updateSun(position:SolarPosition){this.currentSun=position;this.applySun();}
   private applySun() {
     const p=this.currentSun;if(!p)return;
+    const light=lightingForAltitude(p.altitude);
     this.sun.position.fromArray(p.direction).multiplyScalar(this.radius*3);
-    this.sun.intensity=p.daylight?2.8:0;this.sun.castShadow=p.daylight&&this.visible;
-    this.ambient.intensity=p.daylight?.7:.65;this.ambient.color.set(p.daylight?0xffffff:0xa7badd);
+    this.sun.intensity=light.sunIntensity;this.sun.color.copy(this.warmSun).lerp(this.neutralSun,light.sunNeutral);
+    this.sun.castShadow=p.daylight&&this.visible;
+    this.ambient.intensity=light.ambientIntensity;
+    this.ambient.color.copy(this.nightAmbient).lerp(this.dawnAmbient,light.ambientTwilight).lerp(this.dayAmbient,light.ambientNeutral);
+    this.ground.material.opacity=light.shadowOpacity;
     this.ground.visible=p.daylight&&this.visible;
     this.sunMarker.position.fromArray(p.direction).multiplyScalar(Math.min(420,this.radius*.6));
     this.sunMarker.visible=p.daylight&&this.pathVisible;
+    this.sunMarker.material.opacity=light.sunVisibility;
     const ray=[0,0,.2,...this.sunMarker.position.toArray()];
     const attr=this.sunRay.geometry.getAttribute('position') as THREE.BufferAttribute|undefined;
     if(attr){attr.set(ray);attr.needsUpdate=true;}else this.sunRay.geometry.setAttribute('position',new THREE.Float32BufferAttribute(ray,3));
     this.sunRay.visible=p.daylight&&this.pathVisible;
+    this.sunRay.material.opacity=.6*light.sunVisibility;
     if(this.renderer)this.renderer.shadowMap.needsUpdate=true;
     this.map?.triggerRepaint();
   }

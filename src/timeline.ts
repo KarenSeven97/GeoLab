@@ -1,6 +1,7 @@
 import { Temporal } from '@js-temporal/polyfill';
 import { Simulation, clockText, zoned } from './simulation.ts';
 import { solarDay, solarPosition, seasonDates, type SolarDay, type SolarPosition } from './solar.ts';
+import { lightingForAltitude } from './lighting';
 
 export function createTimeline(model:Simulation,onChange:(sun:SolarPosition,day:SolarDay,changed:boolean)=>void) {
   const metrics=document.createElement('section');metrics.className='solar-panel';metrics.setAttribute('aria-label','太阳信息');
@@ -31,8 +32,10 @@ export function createTimeline(model:Simulation,onChange:(sun:SolarPosition,day:
     set('year-label',String(local.year));set('offset-label',`UTC${local.offset}`);set('zone-label',model.zone);
     if(document.activeElement!==input('zone-input'))input('zone-input').value=model.zone;
     set('solar-altitude',`${sun.altitude.toFixed(1)}°`);set('solar-azimuth',`${sun.azimuth.toFixed(0)}° ${['N','NE','E','SE','S','SW','W','NW'][Math.round(sun.azimuth/45)%8]}`);
-    set('sun-state',sun.daylight?(sun.altitude<5?'低太阳高度 · 长阴影可能超出加载范围':'白昼 · 建筑与地面实时投影'):'夜间 · 太阳已在地平线以下，关闭太阳阴影');
+    set('sun-state',sun.daylight?(sun.altitude<5?'低太阳高度 · 暖色光照，长阴影可能超出范围':'白昼 · 建筑与地面实时投影'):sun.altitude> -12?'晨昏微光 · 太阳已落至地平线下，环境光渐变':'夜间 · 保留冷色环境光，关闭太阳阴影');
     document.documentElement.dataset.night=String(!sun.daylight);
+    const lighting=lightingForAltitude(sun.altitude);
+    for(const [key,value] of [['brightness',lighting.mapBrightness],['saturation',lighting.mapSaturation],['sepia',lighting.mapSepia]] as const)document.documentElement.style.setProperty(`--map-${key}`,String(value));
     set('time-notice',model.notice||(day.minutes!==1440?`时区切换日：实际 ${day.minutes/60} 小时；拖动按真实经过时间，重复时刻用 UTC 偏移区分。`:mode==='year'?'全年播放 · 保留当地时刻，年末停止':mode==='day'?'一天播放 · 到次日 00:00 停止':'阴影仅含已加载建筑 · 水平地面 · 00:00 → 次日 00:00'));
     if(changed) {
       const fmt=(ms:number|null)=>ms==null?'—':clockText(ms,model.zone);
@@ -58,7 +61,7 @@ export function createTimeline(model:Simulation,onChange:(sun:SolarPosition,day:
       const dates=seasonDates(local.year,model.zone);panel.querySelectorAll<HTMLButtonElement>('[data-season]').forEach((b,i)=>{b.dataset.date=dates[i];b.title=`${dates[i]} · 保留当前当地时刻`;});
     }
     onChange(sun,day,changed);
-    document.documentElement.dataset.simulation=JSON.stringify({instant:model.instant,date,time:clockText(model.instant,model.zone),zone:model.zone,offset:local.offset,dayMinutes:day.minutes,altitude:sun.altitude,azimuth:sun.azimuth,direction:sun.direction,mode});
+    document.documentElement.dataset.simulation=JSON.stringify({instant:model.instant,date,time:clockText(model.instant,model.zone),zone:model.zone,offset:local.offset,dayMinutes:day.minutes,altitude:sun.altitude,azimuth:sun.azimuth,direction:sun.direction,lighting,mode});
   }
   input('sim-date').addEventListener('change',()=>edit(()=>{if(input('sim-date').value<'1900-01-01'||input('sim-date').value>'2100-12-31')throw Error();model.setDate(input('sim-date').value);}));
   input('sim-time').addEventListener('change',()=>edit(()=>model.setTime(input('sim-time').value)));
